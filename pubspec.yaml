@@ -1,0 +1,80 @@
+name: mendez_pos
+description: "Mendez Barbershop - POS app for sellers"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Routing
+  go_router: ^14.6.2
+
+  # Networking
+  dio: ^5.7.0
+  pretty_dio_logger: ^1.4.0
+
+  # Functional error handling
+  fpdart: ^1.1.1
+
+  # DI
+  get_it: ^8.0.2
+  injectable: ^2.5.0
+
+  # Serialization / models
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Storage
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.5.3
+
+  # Locale / formatting
+  intl: ^0.20.2
+
+  # Bluetooth thermal printing
+  print_bluetooth_thermal: ^1.2.2
+  permission_handler: ^12.0.3
+  image: ^4.5.4
+
+  # UI helpers
+  gap: ^3.0.1
+
+  # Env config
+  flutter_dotenv: ^5.2.1
+
+  # Camera-based barcode scanning
+  mobile_scanner: ^5.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # Code generation
+  build_runner: ^2.4.13
+  freezed: ^2.5.7
+  json_serializable: ^6.9.0
+  riverpod_generator: ^2.6.3
+  custom_lint: ^0.7.0
+  riverpod_lint: ^2.6.3
+  injectable_generator: ^2.6.2
+
+  # Testing
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env
