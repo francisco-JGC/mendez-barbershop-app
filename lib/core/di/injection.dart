@@ -57,7 +57,13 @@ Future<void> configureDependencies(AppEnv env) async {
 
   // Networking
   sl.registerLazySingleton<TenantInterceptor>(() => TenantInterceptor(sl()));
-  sl.registerLazySingleton<AuthInterceptor>(() => AuthInterceptor(sl()));
+  // AuthInterceptor needs AuthRemoteDataSource for token refresh — pass a
+  // factory instead of a direct instance because the data source depends on
+  // Dio which depends on this interceptor (circular). LazySingleton + factory
+  // resolves the cycle at first use, after everything is registered.
+  sl.registerLazySingleton<AuthInterceptor>(
+    () => AuthInterceptor(sl(), () => sl<AuthRemoteDataSource>()),
+  );
   sl.registerLazySingleton<Dio>(
     () => DioClient.create(
       baseUrl: env.apiBaseUrl,

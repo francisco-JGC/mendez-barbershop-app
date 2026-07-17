@@ -61,16 +61,41 @@ class AuthRepositoryImpl implements AuthRepository {
     final token = await storage.readAccessToken();
     if (token == null || token.isEmpty) return const Right(null);
 
-    final payload = JwtPayload.tryParse(token);
+    var payload = JwtPayload.tryParse(token);
     if (payload == null) {
       await storage.clear();
       return const Right(null);
     }
+
+    // Access expired but refresh probably still valid (backend defaults are
+    // 15m / 7d). Try to swap for a fresh pair before dropping the session —
+    // this is what keeps sellers logged in for the full week the shop is open.
     if (payload.isExpired) {
-      // Refresh flow lives here later. For now, force re-login.
-      await storage.clear();
-      return const Right(null);
+      final refreshToken = await storage.readRefreshToken();
+      if (refreshToken == null || refreshToken.isEmpty) {
+        await storage.clear();
+        return const Right(null);
+      }
+      try {
+        final tokens = await remote.refresh(refreshToken);
+        await storage.writeTokens(
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+        );
+        payload = JwtPayload.tryParse(tokens.accessToken);
+        if (payload == null) {
+          await storage.clear();
+          return const Right(null);
+        }
+      } catch (_) {
+        // Refresh failed (expired refresh token, revoked session, network
+        // error, etc.). Force re-login — safer than letting the seller
+        // operate with stale credentials.
+        await storage.clear();
+        return const Right(null);
+      }
     }
+
     final user = payload.toUser();
     if (user == null || user.role != UserRole.seller) {
       await storage.clear();
