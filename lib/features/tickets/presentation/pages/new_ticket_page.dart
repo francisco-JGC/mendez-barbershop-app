@@ -363,84 +363,171 @@ class _BarcodeInputRow extends StatelessWidget {
   }
 }
 
-class _ServicesTab extends StatelessWidget {
+class _ServicesTab extends StatefulWidget {
   const _ServicesTab({required this.async, required this.onTap});
   final AsyncValue<List<Service>> async;
   final void Function(Service) onTap;
 
   @override
+  State<_ServicesTab> createState() => _ServicesTabState();
+}
+
+class _ServicesTabState extends State<_ServicesTab> {
+  String _query = '';
+
+  @override
   Widget build(BuildContext context) {
-    return async.when(
-      data: (services) => services.isEmpty
-          ? const _EmptyCatalog(label: 'No hay servicios activos')
-          : GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 200,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 1.3,
-              ),
-              itemCount: services.length,
-              itemBuilder: (_, i) => CatalogCard(
-                title: services[i].name,
-                priceLabel: Formatters.money(services[i].price),
-                icon: Icons.content_cut,
-                onTap: () => onTap(services[i]),
-              ),
+    return widget.async.when(
+      data: (services) {
+        final filtered = _filterByName(services, _query, (s) => s.name);
+        return Column(
+          children: [
+            _SearchBar(
+              hint: 'Buscar servicio…',
+              onChanged: (v) => setState(() => _query = v),
             ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? _EmptyCatalog(
+                      label: services.isEmpty
+                          ? 'No hay servicios activos'
+                          : 'Sin resultados para "$_query"',
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 200,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 1.3,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) => CatalogCard(
+                        title: filtered[i].name,
+                        priceLabel: Formatters.money(filtered[i].price),
+                        icon: Icons.content_cut,
+                        onTap: () => widget.onTap(filtered[i]),
+                      ),
+                    ),
+            ),
+          ],
+        );
+      },
       error: (e, _) => _ErrorState(message: e.toString()),
       loading: () => const Center(child: CircularProgressIndicator()),
     );
   }
 }
 
-class _ProductsTab extends StatelessWidget {
+class _ProductsTab extends StatefulWidget {
   const _ProductsTab({required this.async, required this.onTap});
   final AsyncValue<List<Product>> async;
   final void Function(Product) onTap;
 
   @override
+  State<_ProductsTab> createState() => _ProductsTabState();
+}
+
+class _ProductsTabState extends State<_ProductsTab> {
+  String _query = '';
+
+  @override
   Widget build(BuildContext context) {
-    return async.when(
-      data: (products) => products.isEmpty
-          ? const _EmptyCatalog(label: 'No hay productos activos')
-          : GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 200,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 1.15,
-              ),
-              itemCount: products.length,
-              itemBuilder: (_, i) {
-                final p = products[i];
-                return CatalogCard(
-                  title: p.name,
-                  priceLabel: Formatters.money(p.price),
-                  icon: Icons.shopping_bag,
-                  onTap: p.isOutOfStock ? null : () => onTap(p),
-                  badge: p.isOutOfStock
-                      ? 'Sin stock'
-                      : p.isLowStock
-                          ? 'Stock: ${p.stock}'
-                          : 'Stock: ${p.stock}',
-                  badgeColor: p.isOutOfStock
-                      ? Colors.red.shade100
-                      : p.isLowStock
-                          ? Colors.orange.shade100
-                          : Colors.green.shade100,
-                  badgeTextColor: p.isOutOfStock
-                      ? Colors.red.shade900
-                      : p.isLowStock
-                          ? Colors.orange.shade900
-                          : Colors.green.shade900,
-                );
-              },
+    return widget.async.when(
+      data: (products) {
+        final filtered = _filterByName(products, _query, (p) => p.name);
+        return Column(
+          children: [
+            _SearchBar(
+              hint: 'Buscar producto…',
+              onChanged: (v) => setState(() => _query = v),
             ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? _EmptyCatalog(
+                      label: products.isEmpty
+                          ? 'No hay productos activos'
+                          : 'Sin resultados para "$_query"',
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 200,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 1.15,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) {
+                        final p = filtered[i];
+                        return CatalogCard(
+                          title: p.name,
+                          priceLabel: Formatters.money(p.price),
+                          icon: Icons.shopping_bag,
+                          onTap: p.isOutOfStock ? null : () => widget.onTap(p),
+                          badge: p.isOutOfStock
+                              ? 'Sin stock'
+                              : p.isLowStock
+                                  ? 'Stock: ${p.stock}'
+                                  : 'Stock: ${p.stock}',
+                          badgeColor: p.isOutOfStock
+                              ? Colors.red.shade100
+                              : p.isLowStock
+                                  ? Colors.orange.shade100
+                                  : Colors.green.shade100,
+                          badgeTextColor: p.isOutOfStock
+                              ? Colors.red.shade900
+                              : p.isLowStock
+                                  ? Colors.orange.shade900
+                                  : Colors.green.shade900,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
       error: (e, _) => _ErrorState(message: e.toString()),
       loading: () => const Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+/// Case-insensitive substring filter on [items] using [name] to extract the
+/// searchable field. Whitespace-only queries return the original list.
+List<T> _filterByName<T>(List<T> items, String query, String Function(T) name) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return items;
+  return items
+      .where((item) => name(item).toLowerCase().contains(q))
+      .toList(growable: false);
+}
+
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({required this.hint, required this.onChanged});
+  final String hint;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: TextField(
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: const Icon(Icons.search, size: 20),
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      ),
     );
   }
 }
