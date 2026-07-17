@@ -180,12 +180,14 @@ class _NewTicketPageState extends ConsumerState<NewTicketPage>
               )
               .displayName;
       final printer = sl<PrinterService>();
+      final paper = ref.read(printerSettingsControllerProvider).paperWidth;
       final res = await printer.printTicket(PrintTicketArgs(
         ticket: ticket,
         settings: settings,
         barbershop: barbershop,
         catalog: PrintableCatalog(services: services, products: products),
         barberName: barberName,
+        paperOverride: paper,
       ));
       res.match(
         (f) => messenger.showSnackBar(

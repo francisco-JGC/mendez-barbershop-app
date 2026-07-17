@@ -8,6 +8,7 @@ import '../../../../core/utils/formatters.dart';
 import '../../../catalog/application/catalog_providers.dart';
 import '../../../catalog/domain/entities/product.dart';
 import '../../../catalog/domain/entities/service.dart';
+import '../../../printer_settings/application/printer_settings_controller.dart';
 import '../../../printer_settings/domain/services/printer_service.dart';
 import '../../../settings/application/settings_providers.dart';
 import '../../../staff/application/barbers_provider.dart';
@@ -91,12 +92,14 @@ class _TicketDetailsViewState extends ConsumerState<_TicketDetailsView> {
               .map((b) => b.displayName)
               .firstOrNull;
 
+      final paper = ref.read(printerSettingsControllerProvider).paperWidth;
       final res = await sl<PrinterService>().printTicket(PrintTicketArgs(
         ticket: widget.ticket,
         settings: settings,
         barbershop: barbershop,
         catalog: PrintableCatalog(services: services, products: products),
         barberName: barberName,
+        paperOverride: paper,
       ));
       res.match(
         (f) => messenger.showSnackBar(

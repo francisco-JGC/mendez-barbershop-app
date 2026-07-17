@@ -53,6 +53,7 @@ class PrintTicketArgs {
     required this.catalog,
     this.barberName,
     this.stationLabel,
+    this.paperOverride,
   });
 
   final Ticket ticket;
@@ -61,6 +62,11 @@ class PrintTicketArgs {
   final PrintableCatalog catalog;
   final String? barberName;
   final String? stationLabel;
+
+  /// If set, the printer service uses this paper width instead of the one
+  /// stored in preferences. The UI passes what the user has selected in the
+  /// settings toggle so there is no chance of a stale preference read.
+  final PaperWidth? paperOverride;
 }
 
 abstract interface class PrinterService {
@@ -70,7 +76,10 @@ abstract interface class PrinterService {
   Future<Either<Failure, bool>> isConnected();
 
   Future<Either<Failure, Unit>> printTicket(PrintTicketArgs args);
-  Future<Either<Failure, Unit>> printTest(BarbershopInfo barbershop);
+  Future<Either<Failure, Unit>> printTest(
+    BarbershopInfo barbershop, {
+    PaperWidth? paperOverride,
+  });
 
   Future<Either<Failure, ThermalPrinterDevice?>> defaultDevice();
   Future<Either<Failure, Unit>> setDefaultDevice(ThermalPrinterDevice device);

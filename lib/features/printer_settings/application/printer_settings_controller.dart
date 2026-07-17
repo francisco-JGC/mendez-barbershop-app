@@ -184,7 +184,10 @@ class PrinterSettingsController extends Notifier<PrinterSettingsState> {
   Future<void> printTest(WidgetRef ref) async {
     state = state.copyWith(isTesting: true, clearError: true, clearInfo: true);
     final barbershop = await ref.read(barbershopInfoProvider.future);
-    final result = await _service.printTest(barbershop);
+    final result = await _service.printTest(
+      barbershop,
+      paperOverride: state.paperWidth,
+    );
     result.match(
       (f) =>
           state = state.copyWith(isTesting: false, errorMessage: f.message),

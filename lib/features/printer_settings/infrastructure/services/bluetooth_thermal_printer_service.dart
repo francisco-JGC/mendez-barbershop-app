@@ -11,7 +11,7 @@ import '../../domain/services/printer_service.dart';
 
 class BluetoothThermalPrinterService implements PrinterService {
   BluetoothThermalPrinterService(this._prefs, {ReceiptImageEncoder? encoder})
-      : _encoder = encoder ?? const ReceiptImageEncoder();
+    : _encoder = encoder ?? const ReceiptImageEncoder();
 
   final SharedPreferences _prefs;
   final ReceiptImageEncoder _encoder;
@@ -23,15 +23,19 @@ class BluetoothThermalPrinterService implements PrinterService {
 
   @override
   Future<Either<Failure, List<ThermalPrinterDevice>>>
-      listPairedDevices() async {
+  listPairedDevices() async {
     try {
       final devices = await PrintBluetoothThermal.pairedBluetooths;
-      return Right(devices
-          .map((d) => ThermalPrinterDevice(
+      return Right(
+        devices
+            .map(
+              (d) => ThermalPrinterDevice(
                 name: d.name.isEmpty ? d.macAdress : d.name,
                 macAddress: d.macAdress,
-              ))
-          .toList(growable: false));
+              ),
+            )
+            .toList(growable: false),
+      );
     } catch (e) {
       return Left(BluetoothFailure('No se pudieron listar dispositivos: $e'));
     }
@@ -45,7 +49,8 @@ class BluetoothThermalPrinterService implements PrinterService {
       );
       if (!ok) {
         return const Left(
-            BluetoothFailure('No se pudo conectar a la impresora'));
+          BluetoothFailure('No se pudo conectar a la impresora'),
+        );
       }
       return const Right(unit);
     } catch (e) {
@@ -87,7 +92,8 @@ class BluetoothThermalPrinterService implements PrinterService {
 
   @override
   Future<Either<Failure, Unit>> setDefaultDevice(
-      ThermalPrinterDevice device) async {
+    ThermalPrinterDevice device,
+  ) async {
     await _prefs.setString(_kMac, device.macAddress);
     await _prefs.setString(_kName, device.name);
     return const Right(unit);
@@ -103,10 +109,12 @@ class BluetoothThermalPrinterService implements PrinterService {
   @override
   Future<Either<Failure, PaperWidth>> paperWidth() async {
     final mm = _prefs.getInt(_kPaper) ?? PaperWidth.mm58.mm;
-    return Right(PaperWidth.values.firstWhere(
-      (w) => w.mm == mm,
-      orElse: () => PaperWidth.mm58,
-    ));
+    return Right(
+      PaperWidth.values.firstWhere(
+        (w) => w.mm == mm,
+        orElse: () => PaperWidth.mm58,
+      ),
+    );
   }
 
   @override
@@ -129,7 +137,10 @@ class BluetoothThermalPrinterService implements PrinterService {
   @override
   Future<Either<Failure, Unit>> printTicket(PrintTicketArgs args) {
     return _ensureConnectedAndSend(() async {
-      final paper = (await paperWidth()).match((_) => PaperWidth.mm58, (v) => v);
+      // Prefer the explicit override from the UI so we never race the prefs
+      // read against a just-changed toggle. Fall back to prefs only when the
+      // caller can't tell us (e.g. auto-print from a background flow).
+      final paper = await _resolvePaper(args.paperOverride);
       final width = paper.charsPerLine;
       debugPrint('[printer] paper=${paper.mm}mm → chars=$width');
       final logo = _encoder.encode(
@@ -143,11 +154,13 @@ class BluetoothThermalPrinterService implements PrinterService {
         barberName: args.barberName,
         stationLabel: args.stationLabel,
         lines: args.ticket.items
-            .map((i) => ReceiptLineItem(
-                  name: args.catalog.nameFor(i.itemType.wireName, i.itemId),
-                  quantity: i.quantity,
-                  unitPrice: i.unitPrice,
-                ))
+            .map(
+              (i) => ReceiptLineItem(
+                name: args.catalog.nameFor(i.itemType.wireName, i.itemId),
+                quantity: i.quantity,
+                unitPrice: i.unitPrice,
+              ),
+            )
             .toList(growable: false),
         total: args.ticket.total,
         footer: args.settings.receiptFooter,
@@ -160,16 +173,25 @@ class BluetoothThermalPrinterService implements PrinterService {
   }
 
   @override
-  Future<Either<Failure, Unit>> printTest(barbershop) {
+  Future<Either<Failure, Unit>> printTest(
+    barbershop, {
+    PaperWidth? paperOverride,
+  }) {
     return _ensureConnectedAndSend(() async {
-      final paper = (await paperWidth()).match((_) => PaperWidth.mm58, (v) => v);
-      debugPrint('[printer] test paper=${paper.mm}mm → chars=${paper.charsPerLine}');
+      final paper = await _resolvePaper(paperOverride);
+      debugPrint(
+        '[printer] test paper=${paper.mm}mm → chars=${paper.charsPerLine}',
+      );
       final input = ReceiptInput(
         barbershopName: barbershop.name,
         ticketId: 'TEST0000',
         createdAt: DateTime.now().toIso8601String(),
         lines: const [
-          ReceiptLineItem(name: 'Ticket de prueba', quantity: 1, unitPrice: '0.00'),
+          ReceiptLineItem(
+            name: 'Ticket de prueba',
+            quantity: 1,
+            unitPrice: '0.00',
+          ),
         ],
         total: '0.00',
         footer: 'Impresora configurada correctamente',
@@ -178,6 +200,16 @@ class BluetoothThermalPrinterService implements PrinterService {
       );
       return buildReceipt(input);
     });
+  }
+
+  /// Central place to resolve which paper width to use for a print. Priority:
+  /// explicit override from the UI → persisted preference → default 58mm.
+  /// Written as a plain helper so the type is unambiguous — Dart's generic
+  /// inference on `Either.match` kept typing the local as `PaperWidth?`.
+  Future<PaperWidth> _resolvePaper(PaperWidth? override) async {
+    if (override != null) return override;
+    final res = await paperWidth();
+    return res.getRight().toNullable() ?? PaperWidth.mm58;
   }
 
   // Cheap 58mm thermal printers (PT-210, GOOJPRT, and clones) have very small
@@ -201,12 +233,17 @@ class BluetoothThermalPrinterService implements PrinterService {
     final def = (await defaultDevice()).getRight().toNullable();
     if (def == null) {
       return const Left(
-          BluetoothFailure('No hay impresora configurada. Configúrala primero.'));
+        BluetoothFailure('No hay impresora configurada. Configúrala primero.'),
+      );
     }
 
     final bytes = await build();
     // First attempt: use the existing connection if any; otherwise open one.
-    final firstAttempt = await _attemptSend(bytes, device: def, freshOpen: false);
+    final firstAttempt = await _attemptSend(
+      bytes,
+      device: def,
+      freshOpen: false,
+    );
     if (firstAttempt.isRight()) return firstAttempt;
 
     // The `writeBytes` failure is almost always a zombie socket — the plugin
@@ -232,7 +269,8 @@ class BluetoothThermalPrinterService implements PrinterService {
 
       final connected = await PrintBluetoothThermal.connectionStatus;
       debugPrint(
-          '[printer] pre-connect status: $connected, freshOpen=$freshOpen, device=${device.name} (${device.macAddress})');
+        '[printer] pre-connect status: $connected, freshOpen=$freshOpen, device=${device.name} (${device.macAddress})',
+      );
       if (!connected || freshOpen) {
         final connectResult = await connect(device);
         final failure = connectResult.getLeft().toNullable();
@@ -251,11 +289,13 @@ class BluetoothThermalPrinterService implements PrinterService {
       final reallyConnected = await PrintBluetoothThermal.connectionStatus;
       debugPrint('[printer] post-settle status: $reallyConnected');
       if (!reallyConnected) {
-        return Left(BluetoothFailure(
-          'La conexión con "${device.name}" se cerró antes de imprimir. '
-          'Puede ser que la impresora sea BLE (no Bluetooth clásico) o que '
-          'necesites re-emparejarla desde ajustes de Android.',
-        ));
+        return Left(
+          BluetoothFailure(
+            'La conexión con "${device.name}" se cerró antes de imprimir. '
+            'Puede ser que la impresora sea BLE (no Bluetooth clásico) o que '
+            'necesites re-emparejarla desde ajustes de Android.',
+          ),
+        );
       }
 
       // Warmup: send just the ESC @ (initialize) command as a tiny 2-byte
@@ -266,16 +306,19 @@ class BluetoothThermalPrinterService implements PrinterService {
       final warmupOk = await PrintBluetoothThermal.writeBytes([0x1b, 0x40]);
       debugPrint('[printer] warmup result: $warmupOk');
       if (!warmupOk) {
-        return Left(BluetoothFailure(
-          'La impresora "${device.name}" no responde. Verifica que esté '
-          'encendida, con papel y en rango. Si el problema sigue, apaga y '
-          'enciende la impresora, o elimínala y vuelve a emparejarla.',
-        ));
+        return Left(
+          BluetoothFailure(
+            'La impresora "${device.name}" no responde. Verifica que esté '
+            'encendida, con papel y en rango. Si el problema sigue, apaga y '
+            'enciende la impresora, o elimínala y vuelve a emparejarla.',
+          ),
+        );
       }
       await Future.delayed(_interChunkDelay);
 
       debugPrint(
-          '[printer] sending ${bytes.length} bytes in ${(bytes.length / _chunkBytes).ceil()} chunks of $_chunkBytes');
+        '[printer] sending ${bytes.length} bytes in ${(bytes.length / _chunkBytes).ceil()} chunks of $_chunkBytes',
+      );
       var written = 0;
       for (var offset = 0; offset < bytes.length; offset += _chunkBytes) {
         final end = (offset + _chunkBytes) > bytes.length
@@ -292,11 +335,14 @@ class BluetoothThermalPrinterService implements PrinterService {
         final ok = await PrintBluetoothThermal.writeBytes(chunk);
         if (!ok) {
           debugPrint(
-              '[printer] REJECTED at offset=$offset (chunk size=${chunk.length})');
-          return Left(BluetoothFailure(
-            'La impresora rechazó los datos '
-            '(chunk en $offset, $written bytes enviados de ${bytes.length})',
-          ));
+            '[printer] REJECTED at offset=$offset (chunk size=${chunk.length})',
+          );
+          return Left(
+            BluetoothFailure(
+              'La impresora rechazó los datos '
+              '(chunk en $offset, $written bytes enviados de ${bytes.length})',
+            ),
+          );
         }
         written = end;
         if (end < bytes.length) {
