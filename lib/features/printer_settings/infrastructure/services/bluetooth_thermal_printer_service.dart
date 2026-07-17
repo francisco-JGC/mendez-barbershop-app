@@ -1,4 +1,3 @@
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
@@ -148,7 +147,7 @@ class BluetoothThermalPrinterService implements PrinterService {
         maxWidthDots: paper.logoMaxDots,
       );
       final input = ReceiptInput(
-        paperSize: paper.escPosSize,
+        charsPerLine: paper.charsPerLine,
         barbershopName: args.barbershop.name,
         ticketId: args.ticket.id,
         createdAt: args.ticket.createdAt.toIso8601String(),
@@ -184,14 +183,34 @@ class BluetoothThermalPrinterService implements PrinterService {
     });
   }
 
+  @override
+  Future<Either<Failure, Unit>> printMinimalTest() {
+    return _ensureConnectedAndSend(() async {
+      debugPrint('[printer] minimal test');
+      // Only ESC @ (init) + plain ASCII lines + LFs + full cut. No fonts,
+      // no alignment, no codepage. If this doesn't come out clean, no ESC/POS
+      // library on earth will help — the socket is the problem.
+      return <int>[
+        0x1B, 0x40, // ESC @ — initialize
+        ...'HOLA MUNDO\n'.codeUnits,
+        ...'LINEA 2\n'.codeUnits,
+        ...'LINEA 3\n'.codeUnits,
+        ...'LINEA 4\n'.codeUnits,
+        ...'LINEA 5\n'.codeUnits,
+        0x0A, 0x0A, 0x0A, // 3 line feeds
+        0x1D, 0x56, 0x00, // GS V 0 — full cut (ignored if no cutter)
+      ];
+    });
+  }
+
   /// Small sample ticket — same layout the seller sees in real prints so
   /// they can validate alignment/columns before hitting a real sale.
-  Future<List<int>> _buildTestTicket(
+  List<int> _buildTestTicket(
     PaperWidth paper, {
     required String barbershopName,
   }) {
     return buildReceipt(ReceiptInput(
-      paperSize: paper.escPosSize,
+      charsPerLine: paper.charsPerLine,
       barbershopName: barbershopName,
       ticketId: 'TEST0000',
       createdAt: DateTime.now().toIso8601String(),
@@ -362,12 +381,15 @@ class BluetoothThermalPrinterService implements PrinterService {
 }
 
 extension _PaperMap on PaperWidth {
-  // esc_pos_utils_plus only ships two paper profiles: mm58 (383 dots) and
-  // mm80 (576 dots). For 54mm rolls we use the mm58 profile — column widths
-  // are computed as fractions of the imprintable area so the layout still
-  // fits, and the printer's own hardware crops what falls past the margin.
-  PaperSize get escPosSize =>
-      this == PaperWidth.mm80 ? PaperSize.mm80 : PaperSize.mm58;
+  // Empirical values based on printed samples from a real PT-210 clone:
+  // - 54mm roll → 22 chars fits without wrap
+  // - 58mm roll → 30 chars fits with a small right margin
+  // - 80mm roll → 42 chars fits
+  int get charsPerLine => switch (this) {
+        PaperWidth.mm54 => 22,
+        PaperWidth.mm58 => 30,
+        PaperWidth.mm80 => 42,
+      };
 
   int get logoMaxDots => switch (this) {
         PaperWidth.mm54 => 320,

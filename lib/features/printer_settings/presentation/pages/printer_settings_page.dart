@@ -154,6 +154,14 @@ class PrinterSettingsPage extends ConsumerWidget {
                   : const Icon(Icons.print),
               label: const Text('Imprimir ticket de prueba'),
             ),
+            const Gap(8),
+            OutlinedButton.icon(
+              onPressed: (state.selected == null || state.isTesting)
+                  ? null
+                  : controller.printMinimalTest,
+              icon: const Icon(Icons.bug_report_outlined),
+              label: const Text('Test mínimo (diagnóstico)'),
+            ),
           ],
         ),
       ),

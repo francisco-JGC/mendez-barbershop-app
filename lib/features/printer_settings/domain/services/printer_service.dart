@@ -81,6 +81,12 @@ abstract interface class PrinterService {
     PaperWidth? paperOverride,
   });
 
+  /// Absolute-minimum print: ESC @ + 5 plain lines + line feeds + cut. No
+  /// grid, no font selection, no bold — literally the smallest ESC/POS ticket
+  /// possible. If this looks broken, the problem is hardware/pairing, not
+  /// layout.
+  Future<Either<Failure, Unit>> printMinimalTest();
+
   Future<Either<Failure, ThermalPrinterDevice?>> defaultDevice();
   Future<Either<Failure, Unit>> setDefaultDevice(ThermalPrinterDevice device);
   Future<Either<Failure, Unit>> clearDefaultDevice();

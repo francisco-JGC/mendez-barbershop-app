@@ -181,6 +181,18 @@ class PrinterSettingsController extends Notifier<PrinterSettingsState> {
     );
   }
 
+  Future<void> printMinimalTest() async {
+    state = state.copyWith(isTesting: true, clearError: true, clearInfo: true);
+    final result = await _service.printMinimalTest();
+    result.match(
+      (f) => state = state.copyWith(isTesting: false, errorMessage: f.message),
+      (_) => state = state.copyWith(
+        isTesting: false,
+        infoMessage: 'Test mínimo enviado',
+      ),
+    );
+  }
+
   Future<void> printTest(WidgetRef ref) async {
     state = state.copyWith(isTesting: true, clearError: true, clearInfo: true);
     final barbershop = await ref.read(barbershopInfoProvider.future);

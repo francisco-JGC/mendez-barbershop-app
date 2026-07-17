@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:intl/intl.dart';
+
+import 'escpos_builder.dart';
 
 /// Bitmap primed for ESC/POS raster (`GS v 0`).
 class ReceiptBitmap {
@@ -33,7 +34,7 @@ class ReceiptInput {
     required this.createdAt,
     required this.lines,
     required this.total,
-    required this.paperSize,
+    required this.charsPerLine,
     this.barberName,
     this.stationLabel,
     this.footer,
@@ -51,151 +52,137 @@ class ReceiptInput {
   final String? footer;
   final ReceiptBitmap? logo;
   final bool printBarbershopName;
-  final PaperSize paperSize;
+  final int charsPerLine;
 }
 
-/// Builds a receipt using the `esc_pos_utils_plus` grid layout (12 cols,
-/// absolute column positioning via ESC/POS — no space-padding tricks). This
-/// mirrors the approach of the shop's other proven Flutter POS and is what
-/// makes cheap PT-210 clones actually align columns.
-Future<List<int>> buildReceipt(ReceiptInput input) async {
-  final profile = await CapabilityProfile.load();
-  final g = Generator(input.paperSize, profile);
-  // CP850 covers Spanish accents (ñ, á, é, í, ó, ú, ü). Fall back to the
-  // default (CP437) when the printer doesn't advertise CP850 — the diacritic
-  // stripping below keeps ASCII output correct in that case too.
-  g.setGlobalCodeTable('CP850');
-
-  final bytes = <int>[];
-  // Explicit reset so cheap firmwares (PT-210 clones) don't inherit sticky
-  // state — double-width, bold, wrong codepage — from a previous print job.
-  bytes.addAll(g.reset());
+/// Builds a receipt with a manually-controlled character width. All layout is
+/// done by concatenating strings that are guaranteed to be `<= charsPerLine`,
+/// so the printer's own wrap logic is never triggered.
+List<int> buildReceipt(ReceiptInput input) {
+  final w = input.charsPerLine;
+  final b = ReceiptBuilder();
 
   // Logo (optional, centered)
   final logo = input.logo;
   if (logo != null) {
-    bytes.addAll(g.rawBytes(_rasterBytes(logo)));
-    bytes.addAll(g.feed(1));
+    b.align(TextAlign.center);
+    b.rasterImage(logo.widthDots, logo.heightDots, logo.bytes);
+    b.newline();
   }
 
-  // Header — bold barbershop name, no double sizing (breaks on cheap
-  // firmwares by dragging the whole block into double-width sticky mode).
+  // Header — bold barbershop name centered. No double-height/width: cheap
+  // firmwares latch on to it and every subsequent line ends up double-sized.
   if (input.printBarbershopName) {
-    bytes.addAll(g.text(
-      _ascii(input.barbershopName),
-      styles: const PosStyles(align: PosAlign.center, bold: true),
-    ));
-    bytes.addAll(g.feed(1));
+    b.align(TextAlign.center).bold(true);
+    for (final chunk in _wrap(input.barbershopName, w)) {
+      b.line(chunk);
+    }
+    b.bold(false).newline();
   }
 
+  b.align(TextAlign.left);
   final ticketShort = input.ticketId.length >= 8
       ? input.ticketId.substring(0, 8).toUpperCase()
       : input.ticketId.toUpperCase();
 
-  bytes.addAll(g.text('Ticket: $ticketShort'));
-  bytes.addAll(g.text('Fecha: ${_formatDateTime(input.createdAt)}'));
+  _writeLabelValue(b, 'Ticket:', ticketShort, w);
+  _writeLabelValue(b, 'Fecha:', _formatDateTime(input.createdAt), w);
   if (input.barberName != null && input.barberName!.isNotEmpty) {
-    bytes.addAll(g.text('Barbero: ${_ascii(input.barberName!)}'));
+    _writeLabelValue(b, 'Barbero:', input.barberName!, w);
   }
   if (input.stationLabel != null && input.stationLabel!.isNotEmpty) {
-    bytes.addAll(g.text('Silla: ${_ascii(input.stationLabel!)}'));
+    _writeLabelValue(b, 'Silla:', input.stationLabel!, w);
   }
 
-  bytes.addAll(g.hr());
+  b.divider(w);
 
-  // Line items — 12-col grid: [8 name + qty][4 subtotal right]. Column
-  // positioning is absolute in ESC/POS, so wrap and alignment are perfect
-  // regardless of font width.
   for (final item in input.lines) {
     final subtotal =
         _formatCurrency(double.parse(item.unitPrice) * item.quantity);
-    bytes.addAll(g.row([
-      PosColumn(
-        text: _ascii('${item.quantity}x ${item.name}'),
-        width: 8,
-      ),
-      PosColumn(
-        text: subtotal,
-        width: 4,
-        styles: const PosStyles(align: PosAlign.right),
-      ),
-    ]));
-  }
-
-  bytes.addAll(g.hr());
-  bytes.addAll(g.row([
-    PosColumn(
-      text: 'TOTAL',
-      width: 6,
-      styles: const PosStyles(bold: true, height: PosTextSize.size2),
-    ),
-    PosColumn(
-      text: _formatCurrency(input.total),
-      width: 6,
-      styles: const PosStyles(
-        bold: true,
-        height: PosTextSize.size2,
-        align: PosAlign.right,
-      ),
-    ),
-  ]));
-
-  bytes.addAll(g.feed(1));
-
-  final footer = input.footer?.trim();
-  if (footer != null && footer.isNotEmpty) {
-    for (final line in footer.split('\n')) {
-      bytes.addAll(g.text(
-        _ascii(line),
-        styles: const PosStyles(align: PosAlign.center),
-      ));
+    final label = '${item.quantity}x ${item.name}';
+    // If the label is very long we render it on its own line so the price
+    // stays flush right.
+    if (label.length + 1 + subtotal.length > w) {
+      for (final chunk in _wrap(label, w)) {
+        b.line(chunk);
+      }
+      b.line(twoColumns('', subtotal, w));
+    } else {
+      b.line(twoColumns(label, subtotal, w));
     }
   }
 
-  bytes.addAll(g.feed(3));
-  bytes.addAll(g.cut());
-  return bytes;
-}
+  b.divider(w);
+  b.bold(true).line(twoColumns('TOTAL', _formatCurrency(input.total), w));
+  b.bold(false);
+  b.newline();
 
-List<int> _rasterBytes(ReceiptBitmap logo) {
-  // GS v 0 m xL xH yL yH d1..dk — same command the web client emits.
-  final widthBytes = logo.widthDots ~/ 8;
-  return [
-    0x1d, 0x76, 0x30, 0x00,
-    widthBytes & 0xff, (widthBytes >> 8) & 0xff,
-    logo.heightDots & 0xff, (logo.heightDots >> 8) & 0xff,
-    ...logo.bytes,
-  ];
-}
-
-// Strip Spanish diacritics as a safety net. CP850 supports ñ/á natively but
-// if the printer profile doesn't include it the codepage table falls back
-// silently to CP437 and the char comes out as garbage. Better to render "a"
-// than "?" or a random symbol.
-String _ascii(String input) {
-  const map = {
-    'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a', 'Á': 'A', 'À': 'A',
-    'Ä': 'A', 'Â': 'A', 'Ã': 'A',
-    'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e', 'É': 'E', 'È': 'E', 'Ë': 'E',
-    'Ê': 'E',
-    'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i', 'Í': 'I', 'Ì': 'I', 'Ï': 'I',
-    'Î': 'I',
-    'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o', 'Ó': 'O', 'Ò': 'O',
-    'Ö': 'O', 'Ô': 'O', 'Õ': 'O',
-    'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u', 'Ú': 'U', 'Ù': 'U', 'Ü': 'U',
-    'Û': 'U',
-    'ñ': 'n', 'Ñ': 'N',
-    'ç': 'c', 'Ç': 'C',
-  };
-  final buf = StringBuffer();
-  for (final r in input.runes) {
-    final ch = String.fromCharCode(r);
-    buf.write(map[ch] ?? ch);
+  final footer = input.footer?.trim();
+  if (footer != null && footer.isNotEmpty) {
+    b.align(TextAlign.center);
+    for (final rawLine in footer.split('\n')) {
+      for (final chunk in _wrap(rawLine, w)) {
+        b.line(chunk);
+      }
+    }
   }
-  return buf.toString();
+
+  b.newline(3);
+  b.cut();
+  return b.build();
 }
 
-// Same C$ (Nicaragua córdoba) formatting as the web POS.
+/// Writes `Label value` on a single line if it fits, else label on its own
+/// line and value below indented. Keeps info readable no matter how narrow
+/// the paper.
+void _writeLabelValue(ReceiptBuilder b, String label, String value, int width) {
+  final combined = '$label $value';
+  if (combined.length <= width) {
+    b.line(combined);
+  } else {
+    b.line(label);
+    for (final chunk in _wrap(value, width)) {
+      b.line(chunk);
+    }
+  }
+}
+
+/// Word-wraps [text] to lines of at most [width] characters. Very simple:
+/// splits on spaces, only hard-breaks tokens longer than [width].
+List<String> _wrap(String text, int width) {
+  if (text.length <= width) return [text];
+  final words = text.split(' ');
+  final lines = <String>[];
+  var current = '';
+  for (final word in words) {
+    if (word.length > width) {
+      if (current.isNotEmpty) {
+        lines.add(current);
+        current = '';
+      }
+      for (var i = 0; i < word.length; i += width) {
+        final end = (i + width) > word.length ? word.length : i + width;
+        final piece = word.substring(i, end);
+        if (i + width >= word.length) {
+          current = piece;
+        } else {
+          lines.add(piece);
+        }
+      }
+    } else if (current.isEmpty) {
+      current = word;
+    } else if (current.length + 1 + word.length <= width) {
+      current = '$current $word';
+    } else {
+      lines.add(current);
+      current = word;
+    }
+  }
+  if (current.isNotEmpty) lines.add(current);
+  return lines;
+}
+
+// C$ (Nicaragua córdoba) formatting mirrors the web POS.
 final _numberFormat = NumberFormat.decimalPatternDigits(
   locale: 'es_NI',
   decimalDigits: 2,
