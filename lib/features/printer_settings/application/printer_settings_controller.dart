@@ -13,7 +13,7 @@ class PrinterSettingsState {
   const PrinterSettingsState({
     this.devices = const [],
     this.selected,
-    this.paperWidth = PaperWidth.mm58,
+    this.paperWidth = PaperWidth.mm54,
     this.autoPrint = false,
     this.isScanning = false,
     this.isConnecting = false,
@@ -88,7 +88,7 @@ class PrinterSettingsController extends Notifier<PrinterSettingsState> {
     final connectedRes = await _service.isConnected();
     state = state.copyWith(
       selected: selectedRes.getRight().toNullable(),
-      paperWidth: paperRes.match((_) => PaperWidth.mm58, (v) => v),
+      paperWidth: paperRes.match((_) => PaperWidth.mm54, (v) => v),
       autoPrint: autoRes.match((_) => false, (v) => v),
       isConnected: connectedRes.match((_) => false, (v) => v),
     );

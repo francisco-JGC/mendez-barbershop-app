@@ -44,6 +44,7 @@ dependencies:
 
   # Bluetooth thermal printing
   print_bluetooth_thermal: ^1.2.2
+  esc_pos_utils_plus: ^2.0.4
   permission_handler: ^12.0.3
   image: ^4.5.4
 

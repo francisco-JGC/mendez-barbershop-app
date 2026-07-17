@@ -1,10 +1,10 @@
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/errors/failures.dart';
-import '../../../printing/domain/escpos_builder.dart';
 import '../../../printing/domain/receipt.dart';
 import '../../../printing/infrastructure/image_dithering.dart';
 import '../../domain/entities/thermal_printer_device.dart';
@@ -109,11 +109,11 @@ class BluetoothThermalPrinterService implements PrinterService {
 
   @override
   Future<Either<Failure, PaperWidth>> paperWidth() async {
-    final mm = _prefs.getInt(_kPaper) ?? PaperWidth.mm58.mm;
+    final mm = _prefs.getInt(_kPaper) ?? PaperWidth.mm54.mm;
     return Right(
       PaperWidth.values.firstWhere(
         (w) => w.mm == mm,
-        orElse: () => PaperWidth.mm58,
+        orElse: () => PaperWidth.mm54,
       ),
     );
   }
@@ -142,13 +142,13 @@ class BluetoothThermalPrinterService implements PrinterService {
       // read against a just-changed toggle. Fall back to prefs only when the
       // caller can't tell us (e.g. auto-print from a background flow).
       final paper = await _resolvePaper(args.paperOverride);
-      final width = paper.charsPerLine;
-      debugPrint('[printer] paper=${paper.mm}mm → chars=$width');
+      debugPrint('[printer] paper=${paper.mm}mm');
       final logo = _encoder.encode(
         args.settings.logo,
         maxWidthDots: paper.logoMaxDots,
       );
       final input = ReceiptInput(
+        paperSize: paper.escPosSize,
         barbershopName: args.barbershop.name,
         ticketId: args.ticket.id,
         createdAt: args.ticket.createdAt.toIso8601String(),
@@ -167,7 +167,6 @@ class BluetoothThermalPrinterService implements PrinterService {
         footer: args.settings.receiptFooter,
         logo: logo,
         printBarbershopName: args.settings.printBarbershopName,
-        width: width,
       );
       return buildReceipt(input);
     });
@@ -180,56 +179,31 @@ class BluetoothThermalPrinterService implements PrinterService {
   }) {
     return _ensureConnectedAndSend(() async {
       final paper = await _resolvePaper(paperOverride);
-      debugPrint(
-        '[printer] test paper=${paper.mm}mm → chars=${paper.charsPerLine}',
-      );
-      // Calibration ticket: instead of a bland "test OK" line we print a
-      // visual ruler + alignment samples. The seller can literally count how
-      // many chars fit on their physical paper and tell us the number so we
-      // can pick the right value.
-      return _buildCalibrationTicket(paper, barbershopName: barbershop.name);
+      debugPrint('[printer] test paper=${paper.mm}mm');
+      return _buildTestTicket(paper, barbershopName: barbershop.name);
     });
   }
 
-  /// Prints a ruler + a couple of alignment samples. If the printer output
-  /// still looks broken after this, the issue is font/hardware — not our
-  /// layout code.
-  List<int> _buildCalibrationTicket(
+  /// Small sample ticket — same layout the seller sees in real prints so
+  /// they can validate alignment/columns before hitting a real sale.
+  Future<List<int>> _buildTestTicket(
     PaperWidth paper, {
     required String barbershopName,
   }) {
-    final width = paper.charsPerLine;
-    final b = ReceiptBuilder();
-
-    b.align(TextAlign.center).bold(true).line('CALIBRACION').bold(false);
-    b.line('Papel configurado: ${paper.mm}mm ($width chars)');
-    b.newline();
-    b.align(TextAlign.left);
-    b.line('Regla — cuenta cuantos caben:');
-    // "0123456789" repeated so counting up to any position is trivial.
-    final ruler = ('0123456789' * ((width ~/ 10) + 2)).substring(0, width + 8);
-    b.line(ruler);
-    b.newline();
-
-    b.line('Prueba de alineacion:');
-    b.align(TextAlign.left).line('IZQUIERDA');
-    b.align(TextAlign.center).line('CENTRO');
-    b.align(TextAlign.right).line('DERECHA');
-    b.newline();
-
-    b.align(TextAlign.left);
-    b.line('Prueba dos columnas:');
-    b.line(twoColumns('Corte', 'C\$150.00', width));
-    b.line(twoColumns('Barba', 'C\$80.00', width));
-    b.line(twoColumns('Producto largo x2', 'C\$1,200.00', width));
-    b.divider(width);
-    b.bold(true).line(twoColumns('TOTAL', 'C\$1,430.00', width)).bold(false);
-    b.newline();
-
-    b.align(TextAlign.center).line(barbershopName);
-    b.newline(3);
-    b.cut();
-    return b.build();
+    return buildReceipt(ReceiptInput(
+      paperSize: paper.escPosSize,
+      barbershopName: barbershopName,
+      ticketId: 'TEST0000',
+      createdAt: DateTime.now().toIso8601String(),
+      lines: const [
+        ReceiptLineItem(name: 'Corte clasico', quantity: 1, unitPrice: '150.00'),
+        ReceiptLineItem(name: 'Barba', quantity: 1, unitPrice: '80.00'),
+        ReceiptLineItem(name: 'Cera para cabello', quantity: 2, unitPrice: '50.00'),
+      ],
+      total: '330.00',
+      footer: 'Impresora configurada correctamente',
+      printBarbershopName: true,
+    ));
   }
 
   /// Central place to resolve which paper width to use for a print. Priority:
@@ -239,7 +213,7 @@ class BluetoothThermalPrinterService implements PrinterService {
   Future<PaperWidth> _resolvePaper(PaperWidth? override) async {
     if (override != null) return override;
     final res = await paperWidth();
-    return res.getRight().toNullable() ?? PaperWidth.mm58;
+    return res.getRight().toNullable() ?? PaperWidth.mm54;
   }
 
   // Cheap 58mm thermal printers (PT-210, GOOJPRT, and clones) have very small
@@ -388,6 +362,16 @@ class BluetoothThermalPrinterService implements PrinterService {
 }
 
 extension _PaperMap on PaperWidth {
-  int get charsPerLine => this == PaperWidth.mm80 ? 48 : 32;
-  int get logoMaxDots => this == PaperWidth.mm80 ? 576 : 384;
+  // esc_pos_utils_plus only ships two paper profiles: mm58 (383 dots) and
+  // mm80 (576 dots). For 54mm rolls we use the mm58 profile — column widths
+  // are computed as fractions of the imprintable area so the layout still
+  // fits, and the printer's own hardware crops what falls past the margin.
+  PaperSize get escPosSize =>
+      this == PaperWidth.mm80 ? PaperSize.mm80 : PaperSize.mm58;
+
+  int get logoMaxDots => switch (this) {
+        PaperWidth.mm54 => 320,
+        PaperWidth.mm58 => 384,
+        PaperWidth.mm80 => 576,
+      };
 }

@@ -15,6 +15,9 @@ class ThermalPrinterDevice {
 
 /// Paper widths supported by the ESC/POS driver used in this app.
 enum PaperWidth {
+  // Very small PT-210 clones — physical roll is 54mm, imprintable area
+  // ~40mm. Default because it's what the Mendez shop uses in the field.
+  mm54(54),
   mm58(58),
   mm80(80);
 
