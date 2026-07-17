@@ -46,3 +46,9 @@ app.*.map.json
 
 # Env — API base URL and future secrets. Commit .env.example instead.
 .env
+
+# Android release signing — the keystore + its properties file are secrets.
+# Commit only android/key.properties.example.
+/android/key.properties
+*.jks
+*.keystore
