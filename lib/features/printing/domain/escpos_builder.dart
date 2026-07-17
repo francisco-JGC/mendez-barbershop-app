@@ -4,7 +4,18 @@ import 'dart:typed_data';
 /// Emits raw ESC/POS bytes so tickets from the web POS and the mobile POS are byte-identical.
 class ReceiptBuilder {
   ReceiptBuilder() {
-    _bytes.addAll(const [_esc, 0x40]); // ESC @ — initialize printer
+    // Full reset sequence. Cheap PT-210/GOOJPRT clones ignore `ESC @` alone
+    // and keep whatever font/codepage/print-mode the previous session left
+    // dangling — the output looks unaligned or double-wide. Sending the
+    // individual reset commands guarantees a known baseline every ticket.
+    _bytes.addAll(const [
+      _esc, 0x40, // ESC @  — initialize
+      _esc, 0x21, 0x00, // ESC ! 0 — cancel all print modes (bold, DW, DH, underline)
+      _esc, 0x4D, 0x00, // ESC M 0 — select Font A (12x24 dots → 32 chars @ 58mm)
+      _esc, 0x74, 0x00, // ESC t 0 — CP437 code page
+      _esc, 0x33, 0x18, // ESC 3 24 — 24-dot line spacing (default)
+      _esc, 0x61, 0x00, // ESC a 0 — left align
+    ]);
   }
 
   static const int _esc = 0x1b;

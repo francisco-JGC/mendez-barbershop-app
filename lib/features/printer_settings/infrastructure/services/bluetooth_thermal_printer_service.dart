@@ -4,6 +4,7 @@ import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/errors/failures.dart';
+import '../../../printing/domain/escpos_builder.dart';
 import '../../../printing/domain/receipt.dart';
 import '../../../printing/infrastructure/image_dithering.dart';
 import '../../domain/entities/thermal_printer_device.dart';
@@ -182,24 +183,53 @@ class BluetoothThermalPrinterService implements PrinterService {
       debugPrint(
         '[printer] test paper=${paper.mm}mm → chars=${paper.charsPerLine}',
       );
-      final input = ReceiptInput(
-        barbershopName: barbershop.name,
-        ticketId: 'TEST0000',
-        createdAt: DateTime.now().toIso8601String(),
-        lines: const [
-          ReceiptLineItem(
-            name: 'Ticket de prueba',
-            quantity: 1,
-            unitPrice: '0.00',
-          ),
-        ],
-        total: '0.00',
-        footer: 'Impresora configurada correctamente',
-        printBarbershopName: true,
-        width: paper.charsPerLine,
-      );
-      return buildReceipt(input);
+      // Calibration ticket: instead of a bland "test OK" line we print a
+      // visual ruler + alignment samples. The seller can literally count how
+      // many chars fit on their physical paper and tell us the number so we
+      // can pick the right value.
+      return _buildCalibrationTicket(paper, barbershopName: barbershop.name);
     });
+  }
+
+  /// Prints a ruler + a couple of alignment samples. If the printer output
+  /// still looks broken after this, the issue is font/hardware — not our
+  /// layout code.
+  List<int> _buildCalibrationTicket(
+    PaperWidth paper, {
+    required String barbershopName,
+  }) {
+    final width = paper.charsPerLine;
+    final b = ReceiptBuilder();
+
+    b.align(TextAlign.center).bold(true).line('CALIBRACION').bold(false);
+    b.line('Papel configurado: ${paper.mm}mm ($width chars)');
+    b.newline();
+    b.align(TextAlign.left);
+    b.line('Regla — cuenta cuantos caben:');
+    // "0123456789" repeated so counting up to any position is trivial.
+    final ruler = ('0123456789' * ((width ~/ 10) + 2)).substring(0, width + 8);
+    b.line(ruler);
+    b.newline();
+
+    b.line('Prueba de alineacion:');
+    b.align(TextAlign.left).line('IZQUIERDA');
+    b.align(TextAlign.center).line('CENTRO');
+    b.align(TextAlign.right).line('DERECHA');
+    b.newline();
+
+    b.align(TextAlign.left);
+    b.line('Prueba dos columnas:');
+    b.line(twoColumns('Corte', 'C\$150.00', width));
+    b.line(twoColumns('Barba', 'C\$80.00', width));
+    b.line(twoColumns('Producto largo x2', 'C\$1,200.00', width));
+    b.divider(width);
+    b.bold(true).line(twoColumns('TOTAL', 'C\$1,430.00', width)).bold(false);
+    b.newline();
+
+    b.align(TextAlign.center).line(barbershopName);
+    b.newline(3);
+    b.cut();
+    return b.build();
   }
 
   /// Central place to resolve which paper width to use for a print. Priority:
