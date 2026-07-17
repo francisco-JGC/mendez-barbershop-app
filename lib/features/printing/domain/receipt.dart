@@ -62,22 +62,28 @@ List<int> buildReceipt(ReceiptInput input) {
   final w = input.charsPerLine;
   final b = ReceiptBuilder();
 
-  // Logo (optional, centered)
+  // Logo (optional, centered). The raster command already advances the
+  // paper by heightDots — adding an extra newline() left a very visible gap
+  // between the logo and the barbershop name.
   final logo = input.logo;
   if (logo != null) {
     b.align(TextAlign.center);
     b.rasterImage(logo.widthDots, logo.heightDots, logo.bytes);
-    b.newline();
   }
 
-  // Header — bold barbershop name centered. No double-height/width: cheap
-  // firmwares latch on to it and every subsequent line ends up double-sized.
+  // Header — centered, UPPERCASE, wrapped in separators. We can't use bold
+  // here because PT-210 clones implement `ESC E 1` as double-strike +
+  // double-width sticky mode, which cuts "Mendez Barbershop" (17 chars) to
+  // ~9 chars visible on 32-char paper. Uppercase + a divider top/bottom
+  // gives the shop name prominent visual weight without any wide-mode risk.
   if (input.printBarbershopName) {
-    b.align(TextAlign.center).bold(true);
-    for (final chunk in _wrap(input.barbershopName, w)) {
+    b.align(TextAlign.center);
+    b.divider(w, char: '=');
+    for (final chunk in _wrap(input.barbershopName.toUpperCase(), w)) {
       b.line(chunk);
     }
-    b.bold(false).newline();
+    b.divider(w, char: '=');
+    b.newline();
   }
 
   b.align(TextAlign.left);

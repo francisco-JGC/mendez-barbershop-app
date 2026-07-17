@@ -15,7 +15,15 @@ class ReceiptImageEncoder {
   /// [dataUrl] can be `data:image/png;base64,...` or raw base64. Returns null
   /// when the input is empty or fails to decode — callers should treat that as
   /// "no logo" and skip printing it (mirrors the web behaviour).
-  ReceiptBitmap? encode(String? dataUrl, {required int maxWidthDots}) {
+  ///
+  /// [maxHeightDots] caps the logo height so a tall image doesn't eat half
+  /// the ticket. 200 dots (~25mm on Font A line spacing) is a comfortable
+  /// default for the ticket header.
+  ReceiptBitmap? encode(
+    String? dataUrl, {
+    required int maxWidthDots,
+    int maxHeightDots = 200,
+  }) {
     if (dataUrl == null || dataUrl.isEmpty) return null;
     final bytes = _decodeDataUrl(dataUrl);
     if (bytes == null) return null;
@@ -23,10 +31,11 @@ class ReceiptImageEncoder {
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return null;
 
-    // Fit within maxWidthDots keeping aspect ratio, round width down to a
-    // multiple of 8 (raster bitmaps pack 8 px per byte).
-    final scale =
-        (maxWidthDots / decoded.width).clamp(0.0, 1.0).toDouble();
+    // Fit within maxWidthDots AND maxHeightDots keeping aspect ratio, then
+    // round width down to a multiple of 8 (raster bitmaps pack 8 px per byte).
+    final widthScale = maxWidthDots / decoded.width;
+    final heightScale = maxHeightDots / decoded.height;
+    final scale = [widthScale, heightScale, 1.0].reduce((a, b) => a < b ? a : b);
     final widthDots =
         ((decoded.width * scale) ~/ 8) * 8 < 8 ? 8 : ((decoded.width * scale) ~/ 8) * 8;
     final heightDots =

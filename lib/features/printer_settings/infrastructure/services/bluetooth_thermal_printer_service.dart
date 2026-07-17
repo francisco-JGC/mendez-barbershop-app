@@ -14,6 +14,8 @@ class BluetoothThermalPrinterService implements PrinterService {
     : _encoder = encoder ?? const ReceiptImageEncoder();
 
   final SharedPreferences _prefs;
+  // Preserved for future re-enablement of logo printing. See `printTicket`.
+  // ignore: unused_field
   final ReceiptImageEncoder _encoder;
 
   static const _kMac = 'printer.default_mac';
@@ -142,10 +144,10 @@ class BluetoothThermalPrinterService implements PrinterService {
       // caller can't tell us (e.g. auto-print from a background flow).
       final paper = await _resolvePaper(args.paperOverride);
       debugPrint('[printer] paper=${paper.mm}mm');
-      final logo = _encoder.encode(
-        args.settings.logo,
-        maxWidthDots: paper.logoMaxDots,
-      );
+      // Logo rendering is intentionally disabled: even with 1-bit dithering
+      // and atomic raster chunking, PT-210 clones don't render bitmaps
+      // reliably. Re-enable by wiring `_encoder.encode(args.settings.logo,
+      // maxWidthDots: paper.logoMaxDots)` back into `logo:` below.
       final input = ReceiptInput(
         charsPerLine: paper.charsPerLine,
         barbershopName: args.barbershop.name,
@@ -164,7 +166,7 @@ class BluetoothThermalPrinterService implements PrinterService {
             .toList(growable: false),
         total: args.ticket.total,
         footer: args.settings.receiptFooter,
-        logo: logo,
+        logo: null,
         printBarbershopName: args.settings.printBarbershopName,
       );
       return buildReceipt(input);
@@ -339,36 +341,32 @@ class BluetoothThermalPrinterService implements PrinterService {
       }
       await Future.delayed(_interChunkDelay);
 
+      final chunks = _chunkOnLineBreaks(bytes, _chunkBytes);
       debugPrint(
-        '[printer] sending ${bytes.length} bytes in ${(bytes.length / _chunkBytes).ceil()} chunks of $_chunkBytes',
+        '[printer] sending ${bytes.length} bytes in ${chunks.length} line-aligned chunks',
       );
       var written = 0;
-      for (var offset = 0; offset < bytes.length; offset += _chunkBytes) {
-        final end = (offset + _chunkBytes) > bytes.length
-            ? bytes.length
-            : offset + _chunkBytes;
-        // IMPORTANT: `bytes` is a Uint8List, and Uint8List.sublist returns
-        // another Uint8List. The plugin's Kotlin side expects `List<Int>`
-        // (which the platform channel serializes as ArrayList<Integer>);
-        // passing a Uint8List makes Flutter send `byte[]` instead and blows
-        // up with `ClassCastException: byte[] cannot be cast to java.util.List`.
-        // `List<int>.from(...)` forces a plain List<int> so serialization is
-        // correct.
-        final chunk = List<int>.from(bytes.sublist(offset, end));
+      for (var i = 0; i < chunks.length; i++) {
+        final chunk = chunks[i];
+        // IMPORTANT: the plugin's Kotlin side expects `List<Int>` (which the
+        // platform channel serializes as ArrayList<Integer>); passing a
+        // Uint8List makes Flutter send `byte[]` instead and blows up with
+        // `ClassCastException: byte[] cannot be cast to java.util.List`.
+        // The helper already returns List<int>, but keep the copy to be safe.
         final ok = await PrintBluetoothThermal.writeBytes(chunk);
         if (!ok) {
           debugPrint(
-            '[printer] REJECTED at offset=$offset (chunk size=${chunk.length})',
+            '[printer] REJECTED at chunk $i (size=${chunk.length}, written=$written)',
           );
           return Left(
             BluetoothFailure(
               'La impresora rechazó los datos '
-              '(chunk en $offset, $written bytes enviados de ${bytes.length})',
+              '(chunk $i, $written bytes enviados de ${bytes.length})',
             ),
           );
         }
-        written = end;
-        if (end < bytes.length) {
+        written += chunk.length;
+        if (i < chunks.length - 1) {
           await Future.delayed(_interChunkDelay);
         }
       }
@@ -378,19 +376,73 @@ class BluetoothThermalPrinterService implements PrinterService {
       return Left(BluetoothFailure('Error de impresión: $e'));
     }
   }
+
+  /// Splits [bytes] into chunks whose length never exceeds [maxSize] except
+  /// when a raster image is in flight — those must be sent as one atomic
+  /// block or the printer misinterprets the pixel bytes as new commands.
+  /// For text, cuts always land on a `\n` boundary so no printed line is
+  /// split between two BT writes.
+  static List<List<int>> _chunkOnLineBreaks(List<int> bytes, int maxSize) {
+    final chunks = <List<int>>[];
+    var start = 0;
+    while (start < bytes.length) {
+      // Raster image command: GS v 0 m xL xH yL yH d1..dk
+      // Length of the payload is (xL|xH<<8) * (yL|yH<<8) bytes AFTER the
+      // 8-byte header. We MUST emit the header + payload as a single write,
+      // otherwise 0x0A bytes inside the bitmap look like line feeds to the
+      // chunker and the image gets corrupted.
+      if (start + 8 <= bytes.length &&
+          bytes[start] == 0x1D &&
+          bytes[start + 1] == 0x76 &&
+          bytes[start + 2] == 0x30) {
+        final widthBytes = bytes[start + 4] | (bytes[start + 5] << 8);
+        final height = bytes[start + 6] | (bytes[start + 7] << 8);
+        final rasterEnd = start + 8 + widthBytes * height;
+        final clamped = rasterEnd > bytes.length ? bytes.length : rasterEnd;
+        chunks.add(List<int>.from(bytes.sublist(start, clamped)));
+        start = clamped;
+        continue;
+      }
+
+      final hardEnd =
+          (start + maxSize) > bytes.length ? bytes.length : start + maxSize;
+      if (hardEnd == bytes.length) {
+        chunks.add(List<int>.from(bytes.sublist(start, hardEnd)));
+        start = hardEnd;
+        continue;
+      }
+      // Find the last 0x0A within [start, hardEnd). If none, we have a line
+      // longer than maxSize — send the whole slice as one big chunk.
+      var lastLf = -1;
+      for (var i = hardEnd - 1; i >= start; i--) {
+        if (bytes[i] == 0x0A) {
+          lastLf = i;
+          break;
+        }
+      }
+      final cutAt = lastLf >= 0 ? lastLf + 1 : hardEnd;
+      chunks.add(List<int>.from(bytes.sublist(start, cutAt)));
+      start = cutAt;
+    }
+    return chunks;
+  }
 }
 
 extension _PaperMap on PaperWidth {
-  // Empirical values based on printed samples from a real PT-210 clone:
-  // - 54mm roll → 22 chars fits without wrap
-  // - 58mm roll → 30 chars fits with a small right margin
-  // - 80mm roll → 42 chars fits
+  // Empirical values based on printed samples from a real PT-210 clone (the
+  // previous 22-char guess was too conservative — actual usable width was
+  // ~30% wider once we fixed the mid-line chunk boundary bug):
+  // - 54mm roll → 32 chars (Font A, ~48mm imprintable area)
+  // - 58mm roll → 32 chars (same font, marginally more paper)
+  // - 80mm roll → 48 chars (standard for 80mm ESC/POS)
   int get charsPerLine => switch (this) {
-        PaperWidth.mm54 => 22,
-        PaperWidth.mm58 => 30,
-        PaperWidth.mm80 => 42,
+        PaperWidth.mm54 => 32,
+        PaperWidth.mm58 => 32,
+        PaperWidth.mm80 => 48,
       };
 
+  // Preserved for future re-enablement of logo printing.
+  // ignore: unused_element
   int get logoMaxDots => switch (this) {
         PaperWidth.mm54 => 320,
         PaperWidth.mm58 => 384,
