@@ -57,12 +57,6 @@ class _NewTicketPageState extends ConsumerState<NewTicketPage>
           SnackBar(content: Text(_barcodeErrorMessage(failure))),
         ),
         (product) {
-          if (product.isOutOfStock) {
-            messenger.showSnackBar(
-              SnackBar(content: Text('${product.name} está sin stock')),
-            );
-            return;
-          }
           ref.read(newTicketControllerProvider.notifier).addProduct(product);
           messenger.showSnackBar(
             SnackBar(
@@ -466,12 +460,8 @@ class _ProductsTabState extends State<_ProductsTab> {
                           title: p.name,
                           priceLabel: Formatters.money(p.price),
                           icon: Icons.shopping_bag,
-                          onTap: p.isOutOfStock ? null : () => widget.onTap(p),
-                          badge: p.isOutOfStock
-                              ? 'Sin stock'
-                              : p.isLowStock
-                                  ? 'Stock: ${p.stock}'
-                                  : 'Stock: ${p.stock}',
+                          onTap: () => widget.onTap(p),
+                          badge: 'Stock: ${p.stock}',
                           badgeColor: p.isOutOfStock
                               ? Colors.red.shade100
                               : p.isLowStock
