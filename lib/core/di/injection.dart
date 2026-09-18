@@ -10,6 +10,9 @@ import '../../features/auth/infrastructure/repositories/auth_repository_impl.dar
 import '../../features/catalog/domain/repositories/catalog_repository.dart';
 import '../../features/catalog/infrastructure/datasources/catalog_remote_data_source.dart';
 import '../../features/catalog/infrastructure/repositories/catalog_repository_impl.dart';
+import '../../features/dashboard/domain/repositories/dashboard_repository.dart';
+import '../../features/dashboard/infrastructure/datasources/dashboard_remote_data_source.dart';
+import '../../features/dashboard/infrastructure/repositories/dashboard_repository_impl.dart';
 import '../../features/printer_settings/application/printer_connection_keeper.dart';
 import '../../features/printer_settings/domain/services/printer_service.dart';
 import '../../features/printer_settings/infrastructure/services/bluetooth_thermal_printer_service.dart';
@@ -95,6 +98,14 @@ Future<void> configureDependencies(AppEnv env) async {
   );
   sl.registerLazySingleton<CatalogRepository>(
     () => CatalogRepositoryImpl(sl()),
+  );
+
+  // Dashboard (barber summary)
+  sl.registerLazySingleton<DashboardRemoteDataSource>(
+    () => DashboardRemoteDataSourceImpl(sl()),
+  );
+  sl.registerLazySingleton<DashboardRepository>(
+    () => DashboardRepositoryImpl(sl()),
   );
 
   // Settings

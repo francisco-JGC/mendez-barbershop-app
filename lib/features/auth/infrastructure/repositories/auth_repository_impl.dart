@@ -31,12 +31,13 @@ class AuthRepositoryImpl implements AuthRepository {
       if (user == null) {
         return const Left(ServerFailure('Token inválido del servidor'));
       }
-      if (user.role != UserRole.seller) {
-        // Never persist a non-seller token in this app — otherwise the shell
-        // would render POS screens for someone who can't use them.
+      if (!user.canUseApp) {
+        // Never persist a token for a role with no surface here — the router
+        // would have nothing to render for it.
         return const Left(
           UnauthorizedFailure(
-            'Este usuario no tiene permisos para usar la app de ventas',
+            'Este usuario no tiene permisos para usar la app. '
+            'Los administradores gestionan la barbería desde la web.',
           ),
         );
       }
@@ -97,7 +98,7 @@ class AuthRepositoryImpl implements AuthRepository {
     }
 
     final user = payload.toUser();
-    if (user == null || user.role != UserRole.seller) {
+    if (user == null || !user.canUseApp) {
       await storage.clear();
       return const Right(null);
     }

@@ -62,7 +62,7 @@ class AuthController extends Notifier<AuthState> {
     final result = await _repo.currentUser();
     result.match(
       (_) => state = const AuthState.unauthenticated(),
-      (user) => state = user == null || user.role != UserRole.seller
+      (user) => state = user == null || !user.canUseApp
           ? const AuthState.unauthenticated()
           : AuthState.authenticated(user),
     );

@@ -3,7 +3,7 @@
 enum UserRole {
   seller,
   admin,
-  superAdmin,
+  supervisor,
   barber,
   unknown;
 
@@ -13,8 +13,8 @@ enum UserRole {
         return UserRole.seller;
       case 'admin':
         return UserRole.admin;
-      case 'super_admin':
-        return UserRole.superAdmin;
+      case 'supervisor':
+        return UserRole.supervisor;
       case 'barber':
         return UserRole.barber;
       default:
@@ -41,6 +41,12 @@ class User {
   final String? barbershopId;
 
   bool get isSeller => role == UserRole.seller;
+  bool get isBarber => role == UserRole.barber;
+
+  /// Roles that have a surface in this app. Sellers get the POS (ring up
+  /// services and products); barbers get their own read-only summary. Admins
+  /// and supervisors run the shop from the web client, not from here.
+  bool get canUseApp => isSeller || isBarber;
 
   /// Whatever the user typed at login — for display in the app bar.
   String get displayIdentifier => username ?? email ?? '';

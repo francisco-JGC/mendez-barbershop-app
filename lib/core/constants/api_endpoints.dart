@@ -11,4 +11,7 @@ class ApiEndpoints {
   // Sales
   static const String sales = '/sales';
   static String saleById(String id) => '/sales/$id';
+
+  // Dashboard — scoped to the barber in the JWT, no id needed.
+  static const String barberDashboard = '/dashboard/barber';
 }

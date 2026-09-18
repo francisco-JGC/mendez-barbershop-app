@@ -58,7 +58,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     ),
                     const Gap(4),
                     Text(
-                      'Ingresa con tu cuenta de vendedor',
+                      'Ingresa con tu cuenta',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),

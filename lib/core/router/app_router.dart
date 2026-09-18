@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/application/auth_controller.dart';
+import '../../features/auth/domain/entities/user.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
+import '../../features/dashboard/presentation/pages/barber_dashboard_page.dart';
+import '../../features/dashboard/presentation/pages/barber_history_page.dart';
 import '../../features/printer_settings/presentation/pages/printer_settings_page.dart';
 import '../../features/tenant/application/tenant_controller.dart';
 import '../../features/tenant/presentation/pages/tenant_code_page.dart';
@@ -37,8 +40,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // 3. Not authenticated → login page.
       if (!auth.isAuthenticated) return onLogin ? null : AppRoutes.login;
 
-      // 4. Authenticated → bounce off the pre-auth screens.
-      if (onLogin || onTenantCode) return AppRoutes.home;
+      // 4. Authenticated → each role gets its own surface: sellers the POS
+      // shell, barbers their personal dashboard. Nobody can land on the other
+      // role's screens by deep link or by a stale location after re-login.
+      final home = _homeFor(auth.user);
+      if (onLogin || onTenantCode) return home;
+
+      final onBarberArea = location.startsWith(AppRoutes.barberDashboard);
+      if (onBarberArea != (auth.user?.isBarber ?? false)) return home;
+
       return null;
     },
     routes: [
@@ -93,13 +103,41 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navShell) => _BarberShell(navShell: navShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.barberDashboard,
+                name: 'barber-dashboard',
+                builder: (_, _) => const BarberDashboardPage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.barberHistory,
+                name: 'barber-history',
+                builder: (_, _) => const BarberHistoryPage(),
+              ),
+            ],
+          ),
+        ],
+      ),
       GoRoute(
         path: AppRoutes.home,
-        redirect: (_, _) => AppRoutes.newSale,
+        redirect: (_, _) => _homeFor(ref.read(authControllerProvider).user),
       ),
     ],
   );
 });
+
+/// Landing route for a signed-in user, by role. Barbers never reach the POS
+/// shell and sellers never reach the barber dashboard.
+String _homeFor(User? user) =>
+    user?.isBarber ?? false ? AppRoutes.barberDashboard : AppRoutes.newSale;
 
 /// Bridges Riverpod state changes into a [Listenable] that GoRouter can
 /// consume. GoRouter reruns `redirect` whenever this notifies, which is what
@@ -112,6 +150,40 @@ class _RouterRefreshListenable extends ChangeNotifier {
 
   // ignore: unused_field
   final Ref _ref;
+}
+
+/// The barber's two-tab shell. Intentionally separate from [_HomeShell]: the
+/// POS tabs (new sale, printer) have no meaning for a barber.
+class _BarberShell extends StatelessWidget {
+  const _BarberShell({required this.navShell});
+
+  final StatefulNavigationShell navShell;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: navShell,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: navShell.currentIndex,
+        onDestinationSelected: (i) => navShell.goBranch(
+          i,
+          initialLocation: i == navShell.currentIndex,
+        ),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.insights_outlined),
+            selectedIcon: Icon(Icons.insights),
+            label: 'Mi día',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.content_cut_outlined),
+            selectedIcon: Icon(Icons.content_cut),
+            label: 'Mis servicios',
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _HomeShell extends StatelessWidget {
